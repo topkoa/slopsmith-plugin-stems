@@ -262,6 +262,8 @@
             audio.crossOrigin = 'anonymous';
             audio.preload = 'auto';
             audio.src = s.url;
+            audio.onerror = (e) => console.error(`[stems] Failed to load ${s.id}:`, audio.error);
+            audio.oncanplaythrough = () => console.log(`[stems] ${s.id} ready`);
             audio.load();
 
             const source = ctx.createMediaElementSource(audio);
@@ -322,11 +324,20 @@
 
             // Wait for song_info via highway._onReady (same pattern splitscreen uses)
             const prev = highway._onReady;
-            highway._onReady = () => {
+            const readyFn = () => {
                 try { onSongReady(); } catch (e) { console.warn('[stems] init failed:', e); }
                 if (prev) prev();
-                if (highway._onReady === arguments.callee) highway._onReady = null;
+                if (highway._onReady === readyFn) highway._onReady = null;
             };
+            highway._onReady = readyFn;
+
+            // If highway already fired ready (e.g. another plugin awaited
+            // a slow operation in the chain), trigger immediately.
+            const info = highway.getSongInfo && highway.getSongInfo();
+            if (info && info.title) {
+                highway._onReady = null;
+                readyFn();
+            }
         };
 
         // Clean up on leaving the player
