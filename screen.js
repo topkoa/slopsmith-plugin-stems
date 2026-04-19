@@ -330,6 +330,14 @@
                 if (highway._onReady === readyFn) highway._onReady = null;
             };
             highway._onReady = readyFn;
+
+            // If highway already fired ready (e.g. another plugin awaited
+            // a slow operation in the chain), trigger immediately.
+            const info = highway.getSongInfo && highway.getSongInfo();
+            if (info && info.title) {
+                highway._onReady = null;
+                readyFn();
+            }
         };
 
         // Clean up on leaving the player
