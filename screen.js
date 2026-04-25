@@ -168,6 +168,11 @@
             };
             s.btn = btn;
             wrap.appendChild(btn);
+            // Sentinel keeps btn from being button:last-child of wrap,
+            // which would break other plugins' controls.querySelector('button:last-child').
+            const sentinel = document.createElement('span');
+            sentinel.style.display = 'none';
+            wrap.appendChild(sentinel);
             container.appendChild(wrap);
         }
 
