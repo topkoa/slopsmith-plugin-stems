@@ -1,4 +1,4 @@
-# Slopsmith Plugin: Stems
+# Slopsmith Plugin: Stems Toggle
 
 A plugin for [Slopsmith](https://github.com/byrongamatos/slopsmith) that turns multi-stem `.sloppak` songs into a live mixing board. Toggle guitar, bass, drums, vocals, piano, or "other" on the fly during playback, tweak each stem's volume, and the plugin remembers your mix per song.
 
@@ -9,7 +9,7 @@ PSARC songs are untouched — the plugin only activates when a song's `song_info
 - **Per-stem mute toggles** injected into the player control bar
 - **Volume sliders** — shift+click any stem button to open a volume popover
 - **Per-song memory** — muted stems and volumes are saved to `localStorage` keyed by filename, so each song reopens with your last mix
-- **Default-muted presets** — pick which stems start muted on new songs (e.g. always start with vocals off)
+- **Mute on load** — pick which stems start silenced when a song opens (e.g. always start with vocals off)
 - **Karaoke mode** — one-click preset that always mutes vocals by default
 - **Tight sync** — stems slave their `currentTime` to the core `<audio>` element on play/seek events, with a 50 ms drift threshold correction
 - **Inert on PSARC** — core audio works normally when there are no stems to mix
@@ -31,10 +31,10 @@ docker compose restart
 
 ## Settings
 
-Open **Settings → Stem Mixer** to configure:
+Open **Settings → Stems Toggle** to configure:
 
 - **Karaoke mode** — start every new song with vocals muted
-- **Default muted stems** — tick the stems that should default to off (e.g. vocals + piano for a guitar practice preset)
+- **Mute on load** — tick the stems that should default to off (e.g. vocals + piano for a guitar practice preset)
 
 Per-song toggles always override defaults.
 

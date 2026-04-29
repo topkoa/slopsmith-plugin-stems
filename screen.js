@@ -2,7 +2,7 @@
     'use strict';
 
     /* ======================================================================
-     *  Stem Mixer Plugin
+     *  Stems Toggle Plugin
      *  For sloppak songs with multiple stems, creates a Web Audio graph
      *  where each stem is its own <audio> element routed through a GainNode.
      *  The core <audio id="audio"> is used as a silent timing master and
@@ -70,14 +70,14 @@
     let currentFilename = null;
 
     // ── Settings ──
-    const karaokeToggle = document.getElementById('stems-vocals-off-default');
+    const karaokeToggle = document.getElementById('stems-toggle-karaoke');
     if (karaokeToggle) {
         karaokeToggle.checked = localStorage.getItem(KARAOKE_KEY) === '1';
         karaokeToggle.addEventListener('change', () => {
             localStorage.setItem(KARAOKE_KEY, karaokeToggle.checked ? '1' : '0');
         });
     }
-    const defMutedHost = document.getElementById('stems-default-muted');
+    const defMutedHost = document.getElementById('stems-toggle-startup-muted');
     if (defMutedHost) {
         const muted = loadDefaultMuted();
         defMutedHost.innerHTML = '';
