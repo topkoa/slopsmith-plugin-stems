@@ -1,5 +1,5 @@
 <div>
-    <label class="text-sm font-medium text-gray-400 mb-2 block">Stems</label>
+    <label class="text-sm font-medium text-gray-400 mb-2 block">Stems Toggle</label>
     <p class="text-xs text-gray-500 mb-3">
         For multi-stem sloppak songs, per-stem buttons appear in the player
         controls so you can toggle individual stems (guitar, bass, drums,
@@ -9,17 +9,17 @@
     </p>
     <div class="flex items-center gap-3 mt-2 mb-4">
         <label class="flex items-center gap-2 text-sm text-gray-300">
-            <input type="checkbox" id="stems-vocals-off-default"
+            <input type="checkbox" id="stems-toggle-karaoke"
                    class="accent-accent">
             Start with vocals muted (karaoke mode)
         </label>
     </div>
     <div class="mt-3">
-        <label class="text-xs font-medium text-gray-400 mb-2 block">Default muted stems</label>
+        <label class="text-xs font-medium text-gray-400 mb-2 block">Mute on load</label>
         <p class="text-xs text-gray-500 mb-2">
-            New songs start with these stems muted. Per-song toggles still override.
+            Checked stems start silenced when a song opens. Per-song toggles still override.
         </p>
-        <div id="stems-default-muted" class="flex flex-wrap gap-2">
+        <div id="stems-toggle-startup-muted" class="flex flex-wrap gap-2">
             <!-- filled in by screen.js -->
         </div>
     </div>

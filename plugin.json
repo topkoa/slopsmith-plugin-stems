@@ -1,6 +1,6 @@
 {
   "id": "stems",
-  "name": "Stems",
+  "name": "Stems Toggle",
   "version": "0.1.0",
   "private": false,
   "settings": { "html": "settings.html" },
