@@ -168,6 +168,16 @@
             };
             s.btn = btn;
             wrap.appendChild(btn);
+            // Sentinel keeps btn from being button:last-child of wrap.
+            // Several other plugins (tones, drums, fretboard, midi, ...)
+            // locate the close button via controls.querySelector('button:last-child')
+            // and then insertBefore(newBtn, closeBtn). Without this sentinel
+            // a nested stem button matches first and the insertBefore call
+            // throws NotFoundError because the resolved node isn't a direct
+            // child of controls.
+            const sentinel = document.createElement('span');
+            sentinel.style.display = 'none';
+            wrap.appendChild(sentinel);
             container.appendChild(wrap);
         }
 
