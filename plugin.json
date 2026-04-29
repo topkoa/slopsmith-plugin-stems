@@ -1,6 +1,6 @@
 {
   "id": "stems",
-  "name": "Stem Mixer",
+  "name": "Stems",
   "version": "0.1.0",
   "private": false,
   "settings": { "html": "settings.html" },
