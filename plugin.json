@@ -1,7 +1,7 @@
 {
   "id": "stems",
   "name": "Stems Toggle",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": false,
   "settings": { "html": "settings.html" },
   "script": "screen.js"
