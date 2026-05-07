@@ -366,6 +366,23 @@
         return Boolean(v);
     }
 
+    /**
+     * Public API exposed at window.stems for other plugins (e.g. stem_mixer).
+     *
+     *   getState()           Returns [{id, vol, on, gain, audio}, ...] for the
+     *                        current song's stems. `gain` and `audio` are LIVE
+     *                        references — callers may mutate gain.gain.value
+     *                        directly, but should re-fetch on every song:loaded
+     *                        because nodes are torn down between songs.
+     *   setVolume(id, vol)   `id` is matched case-insensitively against stem
+     *                        ids. `vol` is a float in [0, 1] — values outside
+     *                        the range are clamped, NaN/undefined are ignored.
+     *   setMuted(id, muted)  `muted=true` mutes, `false` unmutes. Common
+     *                        non-boolean inputs ('false', '0', '', null, 0)
+     *                        are coerced to false; everything else is truthy.
+     *   stemState            Live array of internal stem-state objects. Same
+     *                        live-reference contract as getState().
+     */
     const stemsApi = {
         getState: () => stemState.map(s => ({
             // gain and audio are intentionally live references — stem_mixer
@@ -422,10 +439,12 @@
             if (key in existing) continue;
             try {
                 Object.defineProperty(existing, key, desc[key]);
-            } catch (_) {
+            } catch (err) {
                 // existing is sealed/frozen or the slot is non-configurable —
                 // we can't install our method here, but other slots may still
-                // succeed. Don't let it break plugin init.
+                // succeed. Don't let it break plugin init; just log so a
+                // partially-installed API is observable during debugging.
+                console.warn(`[stems] could not install window.stems.${key}:`, err);
             }
         }
     }
