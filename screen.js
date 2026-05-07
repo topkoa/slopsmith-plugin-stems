@@ -197,6 +197,7 @@
         slider.type = 'range';
         slider.min = '0'; slider.max = '100'; slider.step = '1';
         slider.value = String(Math.round(s.vol * 100));
+        slider.dataset.stem = s.id;
         slider.style.cssText = 'width:90px;vertical-align:middle;';
         slider.oninput = () => {
             s.vol = Number(slider.value) / 100;
@@ -356,6 +357,96 @@
             if (id !== 'player') teardown();
             return _show(id);
         };
+    }
+
+    // Coerce common non-boolean inputs ('false', '0', 0, '', null) to false
+    // so external callers can't accidentally mute by passing a string.
+    function coerceBool(v) {
+        if (v === 'false' || v === '0' || v === '' || v == null) return false;
+        return Boolean(v);
+    }
+
+    /**
+     * Public API exposed at window.stems for other plugins (e.g. stem_mixer).
+     *
+     *   getState()           Returns [{id, vol, on, gain, audio}, ...] for the
+     *                        current song's stems. `gain` and `audio` are LIVE
+     *                        references — callers may mutate gain.gain.value
+     *                        directly, but should re-fetch on every song:loaded
+     *                        because nodes are torn down between songs.
+     *   setVolume(id, vol)   `id` is matched case-insensitively against stem
+     *                        ids. `vol` is a float in [0, 1] — values outside
+     *                        the range are clamped, NaN/undefined are ignored.
+     *   setMuted(id, muted)  `muted=true` mutes, `false` unmutes. Common
+     *                        non-boolean inputs ('false', '0', '', null, 0)
+     *                        are coerced to false; everything else is truthy.
+     *   stemState            Live array of internal stem-state objects. Same
+     *                        live-reference contract as getState().
+     */
+    const stemsApi = {
+        getState: () => stemState.map(s => ({
+            // gain and audio are intentionally live references — stem_mixer
+            // mutates `item.gain.gain.value` directly. Do not snapshot.
+            id: s.id, vol: s.vol, on: s.on, gain: s.gain, audio: s.audio,
+        })),
+        setVolume(id, vol) {
+            const v = Number(vol);
+            if (!Number.isFinite(v)) return;
+            const target = String(id).toLowerCase();
+            const clamped = Math.max(0, Math.min(1, v));
+            for (const s of stemState) {
+                if (s.id.toLowerCase() !== target) continue;
+                s.vol = clamped;
+                if (s.on) s.gain.gain.value = clamped;
+                saveVolume(currentFilename, s.id, clamped);
+                if (container) {
+                    const ranges = container.querySelectorAll('.stems-vol-popover input[type=range]');
+                    for (const pop of ranges) {
+                        if (pop.dataset.stem === s.id) {
+                            pop.value = String(Math.round(clamped * 100));
+                        }
+                    }
+                }
+            }
+        },
+        setMuted(id, muted) {
+            const m = coerceBool(muted);
+            const target = String(id).toLowerCase();
+            for (const s of stemState) {
+                if (s.id.toLowerCase() !== target) continue;
+                s.on = !m;
+                s.gain.gain.value = s.on ? s.vol : 0;
+                if (s.btn) s.btn.className = s.on ? ON_CLASS : OFF_CLASS;
+                saveMuted(currentFilename, stemState);
+            }
+        },
+    };
+    Object.defineProperty(stemsApi, 'stemState', {
+        get: () => stemState, enumerable: true,
+    });
+
+    // Don't clobber an existing window.stems set by another plugin —
+    // only fill slots that aren't already defined, leaving any existing
+    // implementations (and accessors) intact. If something non-object
+    // is squatting on the global, replace it wholesale.
+    const existing = window.stems;
+    const isMergeable = existing && (typeof existing === 'object' || typeof existing === 'function');
+    if (!isMergeable) {
+        window.stems = stemsApi;
+    } else {
+        const desc = Object.getOwnPropertyDescriptors(stemsApi);
+        for (const key of Object.keys(desc)) {
+            if (key in existing) continue;
+            try {
+                Object.defineProperty(existing, key, desc[key]);
+            } catch (err) {
+                // existing is sealed/frozen or the slot is non-configurable —
+                // we can't install our method here, but other slots may still
+                // succeed. Don't let it break plugin init; just log so a
+                // partially-installed API is observable during debugging.
+                console.warn(`[stems] could not install window.stems.${key}:`, err);
+            }
+        }
     }
 
     installHooks();
