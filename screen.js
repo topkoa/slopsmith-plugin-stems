@@ -419,8 +419,13 @@
     } else {
         const desc = Object.getOwnPropertyDescriptors(stemsApi);
         for (const key of Object.keys(desc)) {
-            if (!(key in existing)) {
+            if (key in existing) continue;
+            try {
                 Object.defineProperty(existing, key, desc[key]);
+            } catch (_) {
+                // existing is sealed/frozen or the slot is non-configurable —
+                // we can't install our method here, but other slots may still
+                // succeed. Don't let it break plugin init.
             }
         }
     }
