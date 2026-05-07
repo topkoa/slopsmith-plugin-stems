@@ -404,14 +404,17 @@
     });
 
     // Don't clobber an existing window.stems set by another plugin —
-    // merge our methods in (preserving accessor semantics for stemState).
+    // only fill slots that aren't already defined, leaving any existing
+    // implementations (and accessors) intact.
     if (!window.stems) {
         window.stems = stemsApi;
     } else {
-        Object.defineProperties(
-            window.stems,
-            Object.getOwnPropertyDescriptors(stemsApi),
-        );
+        const desc = Object.getOwnPropertyDescriptors(stemsApi);
+        for (const key of Object.keys(desc)) {
+            if (!(key in window.stems)) {
+                Object.defineProperty(window.stems, key, desc[key]);
+            }
+        }
     }
 
     installHooks();
