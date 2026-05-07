@@ -197,6 +197,7 @@
         slider.type = 'range';
         slider.min = '0'; slider.max = '100'; slider.step = '1';
         slider.value = String(Math.round(s.vol * 100));
+        slider.dataset.stem = s.id;
         slider.style.cssText = 'width:90px;vertical-align:middle;';
         slider.oninput = () => {
             s.vol = Number(slider.value) / 100;
@@ -358,34 +359,60 @@
         };
     }
 
-    window.stems = {
+    // Coerce common non-boolean inputs ('false', '0', 0, '', null) to false
+    // so external callers can't accidentally mute by passing a string.
+    function coerceBool(v) {
+        if (v === 'false' || v === '0' || v === '' || v == null) return false;
+        return Boolean(v);
+    }
+
+    const stemsApi = {
         getState: () => stemState.map(s => ({
+            // gain and audio are intentionally live references — stem_mixer
+            // mutates `item.gain.gain.value` directly. Do not snapshot.
             id: s.id, vol: s.vol, on: s.on, gain: s.gain, audio: s.audio,
         })),
         setVolume(id, vol) {
+            const v = Number(vol);
+            if (!Number.isFinite(v)) return;
             const target = String(id).toLowerCase();
-            const v = Math.max(0, Math.min(1, Number(vol) || 0));
+            const clamped = Math.max(0, Math.min(1, v));
             for (const s of stemState) {
                 if (s.id.toLowerCase() !== target) continue;
-                s.vol = v;
-                if (s.on) s.gain.gain.value = v;
-                saveVolume(currentFilename, s.id, v);
-                const pop = container && container.querySelector('.stems-vol-popover input[type=range]');
-                if (pop) pop.value = String(Math.round(v * 100));
+                s.vol = clamped;
+                if (s.on) s.gain.gain.value = clamped;
+                saveVolume(currentFilename, s.id, clamped);
+                const sel = `.stems-vol-popover input[type=range][data-stem="${CSS.escape(s.id)}"]`;
+                const pop = container && container.querySelector(sel);
+                if (pop) pop.value = String(Math.round(clamped * 100));
             }
         },
         setMuted(id, muted) {
+            const m = coerceBool(muted);
             const target = String(id).toLowerCase();
             for (const s of stemState) {
                 if (s.id.toLowerCase() !== target) continue;
-                s.on = !muted;
+                s.on = !m;
                 s.gain.gain.value = s.on ? s.vol : 0;
                 if (s.btn) s.btn.className = s.on ? ON_CLASS : OFF_CLASS;
                 saveMuted(currentFilename, stemState);
             }
         },
-        get stemState() { return stemState; },
     };
+    Object.defineProperty(stemsApi, 'stemState', {
+        get: () => stemState, enumerable: true,
+    });
+
+    // Don't clobber an existing window.stems set by another plugin —
+    // merge our methods in (preserving accessor semantics for stemState).
+    if (!window.stems) {
+        window.stems = stemsApi;
+    } else {
+        Object.defineProperties(
+            window.stems,
+            Object.getOwnPropertyDescriptors(stemsApi),
+        );
+    }
 
     installHooks();
 })();
