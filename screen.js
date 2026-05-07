@@ -382,9 +382,14 @@
                 s.vol = clamped;
                 if (s.on) s.gain.gain.value = clamped;
                 saveVolume(currentFilename, s.id, clamped);
-                const sel = `.stems-vol-popover input[type=range][data-stem="${CSS.escape(s.id)}"]`;
-                const pop = container && container.querySelector(sel);
-                if (pop) pop.value = String(Math.round(clamped * 100));
+                if (container) {
+                    const ranges = container.querySelectorAll('.stems-vol-popover input[type=range]');
+                    for (const pop of ranges) {
+                        if (pop.dataset.stem === s.id) {
+                            pop.value = String(Math.round(clamped * 100));
+                        }
+                    }
+                }
             }
         },
         setMuted(id, muted) {
@@ -405,14 +410,17 @@
 
     // Don't clobber an existing window.stems set by another plugin —
     // only fill slots that aren't already defined, leaving any existing
-    // implementations (and accessors) intact.
-    if (!window.stems) {
+    // implementations (and accessors) intact. If something non-object
+    // is squatting on the global, replace it wholesale.
+    const existing = window.stems;
+    const isMergeable = existing && (typeof existing === 'object' || typeof existing === 'function');
+    if (!isMergeable) {
         window.stems = stemsApi;
     } else {
         const desc = Object.getOwnPropertyDescriptors(stemsApi);
         for (const key of Object.keys(desc)) {
-            if (!(key in window.stems)) {
-                Object.defineProperty(window.stems, key, desc[key]);
+            if (!(key in existing)) {
+                Object.defineProperty(existing, key, desc[key]);
             }
         }
     }
