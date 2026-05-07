@@ -358,5 +358,34 @@
         };
     }
 
+    window.stems = {
+        getState: () => stemState.map(s => ({
+            id: s.id, vol: s.vol, on: s.on, gain: s.gain, audio: s.audio,
+        })),
+        setVolume(id, vol) {
+            const target = String(id).toLowerCase();
+            const v = Math.max(0, Math.min(1, Number(vol) || 0));
+            for (const s of stemState) {
+                if (s.id.toLowerCase() !== target) continue;
+                s.vol = v;
+                if (s.on) s.gain.gain.value = v;
+                saveVolume(currentFilename, s.id, v);
+                const pop = container && container.querySelector('.stems-vol-popover input[type=range]');
+                if (pop) pop.value = String(Math.round(v * 100));
+            }
+        },
+        setMuted(id, muted) {
+            const target = String(id).toLowerCase();
+            for (const s of stemState) {
+                if (s.id.toLowerCase() !== target) continue;
+                s.on = !muted;
+                s.gain.gain.value = s.on ? s.vol : 0;
+                if (s.btn) s.btn.className = s.on ? ON_CLASS : OFF_CLASS;
+                saveMuted(currentFilename, stemState);
+            }
+        },
+        get stemState() { return stemState; },
+    };
+
     installHooks();
 })();
