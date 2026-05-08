@@ -68,6 +68,12 @@
     let wired = false;                 // playSong hooks installed
     let container = null;              // UI container in #player-controls
     let currentFilename = null;
+    // Pending poll fallback for the cold-load race. Tracked at module
+    // scope so teardown() can cancel it whenever the previous play is
+    // abandoned (new song, or leaving the player), preventing an
+    // orphaned interval from firing onSongReady() out of context for
+    // the wrong song or after the player is gone.
+    let pollHandle = null;
 
     // ── Settings ──
     const karaokeToggle = document.getElementById('stems-toggle-karaoke');
@@ -104,6 +110,14 @@
 
     // ── Teardown ──
     function teardown() {
+        // Cancel any pending cold-load poll first. Without this, a poll
+        // started by the previous playSong invocation keeps firing on
+        // its 200ms cadence and could rebuild the graph for the wrong
+        // song, or after the user has navigated away from the player.
+        if (pollHandle !== null) {
+            clearInterval(pollHandle);
+            pollHandle = null;
+        }
         // Restore the core audio element first so playback isn't interrupted
         // while we clean up.
         const core = document.getElementById('audio');
@@ -225,7 +239,15 @@
         if (!core) return;
 
         // Core element is the timing master — silent.
+        // Set BOTH .volume = 0 and .muted = true. The volume mute alone
+        // gets stomped by app.js's `loadedmetadata` listener (added for
+        // slopsmith#54) which re-applies the user's saved song volume
+        // every time the audio element loads metadata — including when
+        // it loads stems[0].url for the timing master. .muted is a
+        // separate flag that listener doesn't touch, so it survives.
+        // teardown() restores both.
         core.volume = 0;
+        core.muted = true;
 
         const DRIFT_THRESHOLD = 0.05; // 50 ms — seek stems back in sync on play
 
@@ -333,21 +355,78 @@
             currentFilename = f;
             await _play(f, a);
 
-            // Wait for song_info via highway._onReady (same pattern splitscreen uses)
+            // Three independent paths to fire onSongReady, all protected
+            // by `handled` so we only build the graph once. Three paths
+            // because the wrapper chain can lose either the synchronous
+            // fast-path OR the _onReady hook depending on timing:
+            //
+            //   (1) _onReady hook — normal path. Fires when 'ready' WS
+            //       message arrives AFTER we set the hook.
+            //   (2) Synchronous fast-path — info.title AND info.stems
+            //       are already there when our wrapper resumes (e.g. an
+            //       inner async wrapper held the chain long enough that
+            //       song_info already arrived). Gating on stems too
+            //       avoids the partial-info trap where title is set but
+            //       stems hasn't been populated yet — onSongReady would
+            //       see empty stems and bail.
+            //   (3) Poll fallback — covers the race where 'ready' fires
+            //       AFTER inner wrappers' awaits resolved but BEFORE we
+            //       reach this post-await code, so _onReady was null at
+            //       fire time and the hook never runs. Splitscreen
+            //       documents the same race in its CLAUDE.md. Without
+            //       (3), stems gets stuck on the first cold-load whenever
+            //       inner wrappers (e.g. midi_capo's tuning fetch) add
+            //       enough latency that ready beats us to setting
+            //       _onReady.
+            // Closure-captured filename for stale-play detection. teardown()
+            // (called at the top of the next playSong invocation, or when
+            // leaving the player) will clearInterval our poll, but in case
+            // of a race where the interval ticks before teardown lands the
+            // myFile guard belt-and-suspenders against firing for the
+            // wrong song.
+            const myFile = f;
+            let handled = false;
+            const fire = () => {
+                if (handled) return;
+                if (currentFilename !== myFile) return;
+                handled = true;
+                try { onSongReady(); } catch (e) { console.warn('[stems] init failed:', e); }
+            };
             const prev = highway._onReady;
             const readyFn = () => {
-                try { onSongReady(); } catch (e) { console.warn('[stems] init failed:', e); }
+                fire();
                 if (prev) prev();
                 if (highway._onReady === readyFn) highway._onReady = null;
             };
             highway._onReady = readyFn;
 
-            // If highway already fired ready (e.g. another plugin awaited
-            // a slow operation in the chain), trigger immediately.
-            const info = highway.getSongInfo && highway.getSongInfo();
-            if (info && info.title) {
+            const infoNow = highway.getSongInfo && highway.getSongInfo();
+            if (infoNow && infoNow.title && Array.isArray(infoNow.stems)) {
                 highway._onReady = null;
-                readyFn();
+                fire();
+                if (prev) prev();
+            } else {
+                let attempts = 0;
+                let myHandle;
+                myHandle = setInterval(() => {
+                    attempts++;
+                    if (handled || currentFilename !== myFile || attempts >= 30) {
+                        clearInterval(myHandle);
+                        if (pollHandle === myHandle) pollHandle = null;
+                        return;
+                    }
+                    const i = highway.getSongInfo && highway.getSongInfo();
+                    if (i && i.title && Array.isArray(i.stems)) {
+                        clearInterval(myHandle);
+                        if (pollHandle === myHandle) pollHandle = null;
+                        if (!handled) {
+                            if (highway._onReady === readyFn) highway._onReady = null;
+                            fire();
+                            if (prev) prev();
+                        }
+                    }
+                }, 200);
+                pollHandle = myHandle;
             }
         };
 
