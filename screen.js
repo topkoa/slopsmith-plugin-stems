@@ -410,7 +410,7 @@
                 let myHandle;
                 myHandle = setInterval(() => {
                     attempts++;
-                    if (handled || currentFilename !== myFile || attempts > 30) {
+                    if (handled || currentFilename !== myFile || attempts >= 30) {
                         clearInterval(myHandle);
                         if (pollHandle === myHandle) pollHandle = null;
                         return;
