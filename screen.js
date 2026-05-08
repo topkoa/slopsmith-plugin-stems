@@ -68,6 +68,12 @@
     let wired = false;                 // playSong hooks installed
     let container = null;              // UI container in #player-controls
     let currentFilename = null;
+    // Pending poll fallback for the cold-load race. Tracked at module
+    // scope so teardown() can cancel it whenever the previous play is
+    // abandoned (new song, or leaving the player), preventing an
+    // orphaned interval from firing onSongReady() out of context for
+    // the wrong song or after the player is gone.
+    let pollHandle = null;
 
     // ── Settings ──
     const karaokeToggle = document.getElementById('stems-toggle-karaoke');
@@ -104,6 +110,14 @@
 
     // ── Teardown ──
     function teardown() {
+        // Cancel any pending cold-load poll first. Without this, a poll
+        // started by the previous playSong invocation keeps firing on
+        // its 200ms cadence and could rebuild the graph for the wrong
+        // song, or after the user has navigated away from the player.
+        if (pollHandle !== null) {
+            clearInterval(pollHandle);
+            pollHandle = null;
+        }
         // Restore the core audio element first so playback isn't interrupted
         // while we clean up.
         const core = document.getElementById('audio');
@@ -364,9 +378,17 @@
             //       inner wrappers (e.g. midi_capo's tuning fetch) add
             //       enough latency that ready beats us to setting
             //       _onReady.
+            // Closure-captured filename for stale-play detection. teardown()
+            // (called at the top of the next playSong invocation, or when
+            // leaving the player) will clearInterval our poll, but in case
+            // of a race where the interval ticks before teardown lands the
+            // myFile guard belt-and-suspenders against firing for the
+            // wrong song.
+            const myFile = f;
             let handled = false;
             const fire = () => {
                 if (handled) return;
+                if (currentFilename !== myFile) return;
                 handled = true;
                 try { onSongReady(); } catch (e) { console.warn('[stems] init failed:', e); }
             };
@@ -385,12 +407,18 @@
                 if (prev) prev();
             } else {
                 let attempts = 0;
-                const poll = setInterval(() => {
+                let myHandle;
+                myHandle = setInterval(() => {
                     attempts++;
-                    if (handled || attempts > 30) { clearInterval(poll); return; }
+                    if (handled || currentFilename !== myFile || attempts > 30) {
+                        clearInterval(myHandle);
+                        if (pollHandle === myHandle) pollHandle = null;
+                        return;
+                    }
                     const i = highway.getSongInfo && highway.getSongInfo();
                     if (i && i.title && Array.isArray(i.stems)) {
-                        clearInterval(poll);
+                        clearInterval(myHandle);
+                        if (pollHandle === myHandle) pollHandle = null;
                         if (!handled) {
                             if (highway._onReady === readyFn) highway._onReady = null;
                             fire();
@@ -398,6 +426,7 @@
                         }
                     }
                 }, 200);
+                pollHandle = myHandle;
             }
         };
 
