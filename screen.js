@@ -324,38 +324,53 @@
 
     // ── Hook playSong ──
     function installHooks() {
-        if (wired) return;
+        const hookState = window.__slopsmithStemsHooks || (window.__slopsmithStemsHooks = {});
+        hookState.impl = {
+            beforePlaySong(f) {
+                teardown(); // kill any prior graph before new song loads
+                currentFilename = f;
+            },
+            afterPlaySong() {
+                // Wait for song_info via highway._onReady (same pattern splitscreen uses)
+                const prev = highway._onReady;
+                const readyFn = () => {
+                    try { onSongReady(); } catch (e) { console.warn('[stems] init failed:', e); }
+                    if (prev) prev();
+                    if (highway._onReady === readyFn) highway._onReady = null;
+                };
+                highway._onReady = readyFn;
+
+                // If highway already fired ready (e.g. another plugin awaited
+                // a slow operation in the chain), trigger immediately.
+                const info = highway.getSongInfo && highway.getSongInfo();
+                if (info && info.title) {
+                    highway._onReady = null;
+                    readyFn();
+                }
+            },
+            teardown,
+        };
+        if (hookState.installed) return;
         wired = true;
+        hookState.installed = true;
 
         const _play = window.playSong;
+        hookState.basePlaySong = _play;
         window.playSong = async function (f, a) {
-            teardown(); // kill any prior graph before new song loads
-            currentFilename = f;
-            await _play(f, a);
-
-            // Wait for song_info via highway._onReady (same pattern splitscreen uses)
-            const prev = highway._onReady;
-            const readyFn = () => {
-                try { onSongReady(); } catch (e) { console.warn('[stems] init failed:', e); }
-                if (prev) prev();
-                if (highway._onReady === readyFn) highway._onReady = null;
-            };
-            highway._onReady = readyFn;
-
-            // If highway already fired ready (e.g. another plugin awaited
-            // a slow operation in the chain), trigger immediately.
-            const info = highway.getSongInfo && highway.getSongInfo();
-            if (info && info.title) {
-                highway._onReady = null;
-                readyFn();
-            }
+            const beforeImpl = hookState.impl;
+            if (beforeImpl && typeof beforeImpl.beforePlaySong === 'function') beforeImpl.beforePlaySong(f, a);
+            await hookState.basePlaySong.call(this, f, a);
+            const afterImpl = hookState.impl;
+            if (afterImpl && typeof afterImpl.afterPlaySong === 'function') afterImpl.afterPlaySong(f, a);
         };
 
         // Clean up on leaving the player
         const _show = window.showScreen;
+        hookState.baseShowScreen = _show;
         window.showScreen = function (id) {
-            if (id !== 'player') teardown();
-            return _show(id);
+            const impl = hookState.impl;
+            if (id !== 'player' && impl && typeof impl.teardown === 'function') impl.teardown();
+            return hookState.baseShowScreen.call(this, id);
         };
     }
 
