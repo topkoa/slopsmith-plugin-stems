@@ -18,6 +18,10 @@
     const COMMON_STEMS = ['guitar', 'bass', 'drums', 'vocals', 'piano', 'other'];
     const MUTE_KEY_PREFIX = 'stemsMute:';  // per-song muted stem ids
     const VOL_KEY_PREFIX = 'stemsVol:';    // per-song volume overrides (id -> 0..1)
+    const DRAG_THRESHOLD_PX = 4;
+    const KEYBOARD_VOLUME_STEP = 0.02;
+    const KEYBOARD_VOLUME_STEP_LARGE = 0.1;
+    const PRIMARY_BUTTON_MASK = 1;
 
     function loadDefaultMuted() {
         try {
@@ -74,6 +78,13 @@
     // orphaned interval from firing onSongReady() out of context for
     // the wrong song or after the player is gone.
     let pollHandle = null;
+    const pointerCleanupHandlers = new Set();
+
+    function cleanupPointerHandlers() {
+        for (const cleanup of pointerCleanupHandlers) {
+            try { cleanup(); } catch (_) {}
+        }
+    }
 
     // ── Settings ──
     const karaokeToggle = document.getElementById('stems-toggle-karaoke');
@@ -108,8 +119,49 @@
         return localStorage.getItem(KARAOKE_KEY) === '1';
     }
 
+    function clampVolume(volume) {
+        const numeric = Number(volume);
+        if (!Number.isFinite(numeric)) return null;
+        return Math.max(0, Math.min(1, numeric));
+    }
+
+    function updateStemButton(stem, options = {}) {
+        if (!stem.btn) return;
+        const volume = clampVolume(stem.vol);
+        const percent = Math.round((volume == null ? 0 : volume) * 100);
+        stem.btn.className = stem.on ? ON_CLASS : OFF_CLASS;
+        if (options.updateA11y !== false) {
+            stem.btn.title = `Click: toggle ${stem.id}. Drag left/right: set volume (${percent}%).`;
+            stem.btn.setAttribute('aria-pressed', stem.on ? 'true' : 'false');
+            stem.btn.setAttribute('aria-label', `${stem.id} stem, ${stem.on ? 'on' : 'muted'}, volume ${percent}%`);
+        }
+        if (stem.volFill) {
+            stem.volFill.className = stem.on ? 'bg-accent/40' : 'bg-dark-500';
+            stem.volFill.style.width = `${percent}%`;
+        }
+    }
+
+    function setStemVolume(stem, volume, options = {}) {
+        const clamped = clampVolume(volume);
+        if (clamped == null) return false;
+        const changed = stem.vol !== clamped;
+        stem.vol = clamped;
+        if (stem.on) stem.gain.gain.value = clamped;
+        updateStemButton(stem, options);
+        if (options.persist !== false && changed) saveVolume(currentFilename, stem.id, clamped);
+        return true;
+    }
+
+    function setStemVolumeFromPointer(stem, button, event, options = {}, bounds = null) {
+        const rect = bounds || button.getBoundingClientRect();
+        if (!rect.width) return false;
+        const volume = (event.clientX - rect.left) / rect.width;
+        return setStemVolume(stem, volume, options);
+    }
+
     // ── Teardown ──
     function teardown() {
+        cleanupPointerHandlers();
         // Cancel any pending cold-load poll first. Without this, a poll
         // started by the previous playSong invocation keeps firing on
         // its 200ms cadence and could rebuild the graph for the wrong
@@ -137,6 +189,7 @@
             s.audio.remove();
         }
         stemState = [];
+        pointerCleanupHandlers.clear();
         if (container) {
             container.remove();
             container = null;
@@ -146,6 +199,8 @@
 
     // ── UI ──
     function injectUI() {
+        cleanupPointerHandlers();
+        pointerCleanupHandlers.clear();
         const c = document.getElementById('player-controls');
         if (!c) return;
         // Remove any previous bar
@@ -167,20 +222,128 @@
             wrap.style.cssText = 'position:relative;display:inline-block;';
 
             const btn = document.createElement('button');
-            btn.textContent = s.id;
-            btn.title = `Click: toggle ${s.id}. Shift+click: volume.`;
-            btn.className = s.on ? ON_CLASS : OFF_CLASS;
-            btn.onclick = (e) => {
-                if (e.shiftKey) {
-                    toggleSlider(s, wrap);
+            btn.style.cssText = 'position:relative;overflow:hidden;min-width:46px;touch-action:none;';
+            const fill = document.createElement('span');
+            fill.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:0%;pointer-events:none;transition:width 80ms linear,background-color 120ms ease,border-color 120ms ease;';
+            const text = document.createElement('span');
+            text.textContent = s.id;
+            text.style.cssText = 'position:relative;z-index:1;pointer-events:none;';
+            btn.appendChild(fill);
+            btn.appendChild(text);
+            s.btn = btn;
+            s.volFill = fill;
+
+            let volumeGestureActive = false;
+            let volumePointerId = null;
+            let pointerTracking = false;
+            let hasPointerCapture = false;
+            let pointerStartX = 0;
+            let pointerStartY = 0;
+            let pointerBounds = null;
+            let pointerFilename = null;
+            let pointerStartVolume = null;
+            let suppressNextClick = false;
+            const clearPointerState = () => {
+                pointerTracking = false;
+                volumeGestureActive = false;
+                volumePointerId = null;
+                hasPointerCapture = false;
+                pointerBounds = null;
+                pointerFilename = null;
+                pointerStartVolume = null;
+                window.removeEventListener('pointerup', finishVolumeGesture);
+                window.removeEventListener('pointercancel', finishVolumeGesture);
+                window.removeEventListener('pointermove', handleVolumePointerMove);
+            };
+            pointerCleanupHandlers.add(clearPointerState);
+            const isEventFromWindowListener = (event) => event.currentTarget === window;
+            const shouldIgnoreNonCapturedButtonEvent = (event, { allowLostPointerCapture = false } = {}) => (
+                !hasPointerCapture
+                && !isEventFromWindowListener(event)
+                && (!allowLostPointerCapture || event.type !== 'lostpointercapture')
+            );
+            const handleVolumePointerMove = (event) => {
+                if (!pointerTracking || event.pointerId !== volumePointerId) return;
+                if (shouldIgnoreNonCapturedButtonEvent(event)) return;
+                if (!hasPointerCapture && (event.buttons & PRIMARY_BUTTON_MASK) === 0) {
+                    clearPointerState();
+                    return;
+                }
+                const deltaX = event.clientX - pointerStartX;
+                const deltaY = event.clientY - pointerStartY;
+                if (!volumeGestureActive) {
+                    if (Math.abs(deltaX) < DRAG_THRESHOLD_PX || Math.abs(deltaX) < Math.abs(deltaY)) return;
+                    volumeGestureActive = true;
+                    suppressNextClick = true;
+                }
+                event.preventDefault();
+                setStemVolumeFromPointer(s, btn, event, { persist: false, updateA11y: false }, pointerBounds);
+            };
+            btn.addEventListener('pointerdown', (event) => {
+                if (event.button !== 0) return;
+                pointerTracking = true;
+                volumeGestureActive = false;
+                volumePointerId = event.pointerId;
+                pointerStartX = event.clientX;
+                pointerStartY = event.clientY;
+                const rect = btn.getBoundingClientRect();
+                pointerBounds = { left: rect.left, width: rect.width };
+                pointerFilename = currentFilename;
+                pointerStartVolume = s.vol;
+                suppressNextClick = false;
+                try {
+                    btn.setPointerCapture(event.pointerId);
+                    hasPointerCapture = true;
+                } catch (_) {
+                    hasPointerCapture = false;
+                    window.addEventListener('pointerup', finishVolumeGesture);
+                    window.addEventListener('pointercancel', finishVolumeGesture);
+                    window.addEventListener('pointermove', handleVolumePointerMove);
+                }
+            });
+            btn.addEventListener('pointermove', handleVolumePointerMove);
+            const finishVolumeGesture = (event) => {
+                if (!pointerTracking || event.pointerId !== volumePointerId) return;
+                if (shouldIgnoreNonCapturedButtonEvent(event, { allowLostPointerCapture: true })) return;
+                if (volumeGestureActive) {
+                    if (event.type === 'pointerup') {
+                        event.preventDefault();
+                        setStemVolumeFromPointer(s, btn, event, { persist: false }, pointerBounds);
+                        saveVolume(pointerFilename, s.id, s.vol);
+                        setTimeout(() => { suppressNextClick = false; }, 0);
+                    } else {
+                        setStemVolume(s, pointerStartVolume, { persist: false });
+                        suppressNextClick = false;
+                    }
+                }
+                clearPointerState();
+                try { btn.releasePointerCapture(event.pointerId); } catch (_) {}
+            };
+            btn.addEventListener('pointerup', finishVolumeGesture);
+            btn.addEventListener('pointercancel', finishVolumeGesture);
+            btn.addEventListener('lostpointercapture', finishVolumeGesture);
+            btn.addEventListener('keydown', (event) => {
+                let direction = 0;
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') direction = -1;
+                if (event.key === 'ArrowRight' || event.key === 'ArrowUp') direction = 1;
+                if (!direction) return;
+                event.preventDefault();
+                const step = event.shiftKey ? KEYBOARD_VOLUME_STEP_LARGE : KEYBOARD_VOLUME_STEP;
+                setStemVolume(s, s.vol + (direction * step));
+            });
+
+            btn.onclick = (event) => {
+                if (suppressNextClick) {
+                    event.preventDefault();
+                    event.stopPropagation();
                     return;
                 }
                 s.on = !s.on;
                 s.gain.gain.value = s.on ? s.vol : 0;
-                btn.className = s.on ? ON_CLASS : OFF_CLASS;
+                updateStemButton(s);
                 saveMuted(currentFilename, stemState);
             };
-            s.btn = btn;
+            setStemVolume(s, s.vol, { persist: false });
             wrap.appendChild(btn);
             // Sentinel keeps btn from being button:last-child of wrap.
             // Several other plugins (tones, drums, fretboard, midi, ...)
@@ -199,38 +362,6 @@
         const separator = c.querySelector('span.text-gray-700');
         if (separator) c.insertBefore(container, separator);
         else c.appendChild(container);
-    }
-
-    function toggleSlider(s, wrap) {
-        const existing = wrap.querySelector('.stems-vol-popover');
-        if (existing) { existing.remove(); return; }
-        const pop = document.createElement('div');
-        pop.className = 'stems-vol-popover';
-        pop.style.cssText = 'position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:6px;background:#13132a;border:1px solid #2a2a3e;border-radius:6px;padding:6px 8px;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,0.5);';
-        const slider = document.createElement('input');
-        slider.type = 'range';
-        slider.min = '0'; slider.max = '100'; slider.step = '1';
-        slider.value = String(Math.round(s.vol * 100));
-        slider.dataset.stem = s.id;
-        slider.style.cssText = 'width:90px;vertical-align:middle;';
-        slider.oninput = () => {
-            s.vol = Number(slider.value) / 100;
-            if (s.on) s.gain.gain.value = s.vol;
-            saveVolume(currentFilename, s.id, s.vol);
-        };
-        slider.onclick = (e) => e.stopPropagation();
-        pop.appendChild(slider);
-        wrap.appendChild(pop);
-        // Dismiss on outside click
-        setTimeout(() => {
-            const off = (ev) => {
-                if (!pop.contains(ev.target) && ev.target !== s.btn) {
-                    pop.remove();
-                    document.removeEventListener('click', off, true);
-                }
-            };
-            document.addEventListener('click', off, true);
-        }, 0);
     }
 
     // ── Core audio sync ──
@@ -313,11 +444,12 @@
                 if (karaoke && /vocal/i.test(s.id)) on = false;
             }
 
-            const vol = (typeof savedVols[s.id] === 'number') ? savedVols[s.id] : 1;
-            gain.gain.value = on ? vol : 0;
+            const vol = clampVolume(savedVols[s.id]);
+            const initialVol = vol ?? 1;
+            gain.gain.value = on ? initialVol : 0;
             source.connect(gain).connect(ctx.destination);
 
-            return { id: s.id, url: s.url, default: s.default, audio, source, gain, on, vol };
+            return { id: s.id, url: s.url, default: s.default, audio, source, gain, on, vol: initialVol };
         });
     }
 
@@ -472,20 +604,9 @@
             const v = Number(vol);
             if (!Number.isFinite(v)) return;
             const target = String(id).toLowerCase();
-            const clamped = Math.max(0, Math.min(1, v));
             for (const s of stemState) {
                 if (s.id.toLowerCase() !== target) continue;
-                s.vol = clamped;
-                if (s.on) s.gain.gain.value = clamped;
-                saveVolume(currentFilename, s.id, clamped);
-                if (container) {
-                    const ranges = container.querySelectorAll('.stems-vol-popover input[type=range]');
-                    for (const pop of ranges) {
-                        if (pop.dataset.stem === s.id) {
-                            pop.value = String(Math.round(clamped * 100));
-                        }
-                    }
-                }
+                setStemVolume(s, v);
             }
         },
         setMuted(id, muted) {
@@ -495,7 +616,7 @@
                 if (s.id.toLowerCase() !== target) continue;
                 s.on = !m;
                 s.gain.gain.value = s.on ? s.vol : 0;
-                if (s.btn) s.btn.className = s.on ? ON_CLASS : OFF_CLASS;
+                updateStemButton(s);
                 saveMuted(currentFilename, stemState);
             }
         },
