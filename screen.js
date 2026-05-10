@@ -118,14 +118,16 @@
         return Math.max(0, Math.min(1, numeric));
     }
 
-    function updateStemButton(stem) {
+    function updateStemButton(stem, options = {}) {
         if (!stem.btn) return;
         const volume = clampVolume(stem.vol);
         const percent = Math.round((volume == null ? 0 : volume) * 100);
         stem.btn.className = stem.on ? ON_CLASS : OFF_CLASS;
-        stem.btn.title = `Click: toggle ${stem.id}. Drag left/right: set volume (${percent}%).`;
-        stem.btn.setAttribute('aria-pressed', stem.on ? 'true' : 'false');
-        stem.btn.setAttribute('aria-label', `${stem.id} stem, ${stem.on ? 'on' : 'muted'}, volume ${percent}%`);
+        if (options.updateA11y !== false) {
+            stem.btn.title = `Click: toggle ${stem.id}. Drag left/right: set volume (${percent}%).`;
+            stem.btn.setAttribute('aria-pressed', stem.on ? 'true' : 'false');
+            stem.btn.setAttribute('aria-label', `${stem.id} stem, ${stem.on ? 'on' : 'muted'}, volume ${percent}%`);
+        }
         if (stem.volFill) {
             stem.volFill.className = stem.on ? 'bg-accent/40' : 'bg-dark-500';
             stem.volFill.style.width = `${percent}%`;
@@ -138,7 +140,7 @@
         const changed = stem.vol !== clamped;
         stem.vol = clamped;
         if (stem.on) stem.gain.gain.value = clamped;
-        updateStemButton(stem);
+        updateStemButton(stem, options);
         if (options.persist !== false && changed) saveVolume(currentFilename, stem.id, clamped);
         return true;
     }
@@ -227,6 +229,7 @@
             let pointerStartX = 0;
             let pointerStartY = 0;
             let pointerBounds = null;
+            let pointerFilename = null;
             let suppressNextClick = false;
             const clearPointerState = () => {
                 pointerTracking = false;
@@ -234,29 +237,12 @@
                 volumePointerId = null;
                 hasPointerCapture = false;
                 pointerBounds = null;
+                pointerFilename = null;
                 window.removeEventListener('pointerup', finishVolumeGesture);
                 window.removeEventListener('pointercancel', finishVolumeGesture);
+                window.removeEventListener('pointermove', handleVolumePointerMove);
             };
-            btn.addEventListener('pointerdown', (event) => {
-                if (event.button !== 0) return;
-                pointerTracking = true;
-                volumeGestureActive = false;
-                volumePointerId = event.pointerId;
-                pointerStartX = event.clientX;
-                pointerStartY = event.clientY;
-                const rect = btn.getBoundingClientRect();
-                pointerBounds = { left: rect.left, width: rect.width };
-                suppressNextClick = false;
-                try {
-                    btn.setPointerCapture(event.pointerId);
-                    hasPointerCapture = true;
-                } catch (_) {
-                    hasPointerCapture = false;
-                    window.addEventListener('pointerup', finishVolumeGesture);
-                    window.addEventListener('pointercancel', finishVolumeGesture);
-                }
-            });
-            btn.addEventListener('pointermove', (event) => {
+            const handleVolumePointerMove = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
                 if (!hasPointerCapture && (event.buttons & PRIMARY_BUTTON_MASK) === 0) {
                     clearPointerState();
@@ -270,15 +256,37 @@
                     suppressNextClick = true;
                 }
                 event.preventDefault();
-                setStemVolumeFromPointer(s, btn, event, { persist: false }, pointerBounds);
+                setStemVolumeFromPointer(s, btn, event, { persist: false, updateA11y: false }, pointerBounds);
+            };
+            btn.addEventListener('pointerdown', (event) => {
+                if (event.button !== 0) return;
+                pointerTracking = true;
+                volumeGestureActive = false;
+                volumePointerId = event.pointerId;
+                pointerStartX = event.clientX;
+                pointerStartY = event.clientY;
+                const rect = btn.getBoundingClientRect();
+                pointerBounds = { left: rect.left, width: rect.width };
+                pointerFilename = currentFilename;
+                suppressNextClick = false;
+                try {
+                    btn.setPointerCapture(event.pointerId);
+                    hasPointerCapture = true;
+                } catch (_) {
+                    hasPointerCapture = false;
+                    window.addEventListener('pointerup', finishVolumeGesture);
+                    window.addEventListener('pointercancel', finishVolumeGesture);
+                    window.addEventListener('pointermove', handleVolumePointerMove);
+                }
             });
+            btn.addEventListener('pointermove', handleVolumePointerMove);
             const finishVolumeGesture = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
                 if (volumeGestureActive) {
                     if (event.type === 'pointerup') {
                         event.preventDefault();
                         setStemVolumeFromPointer(s, btn, event, { persist: false }, pointerBounds);
-                        saveVolume(currentFilename, s.id, s.vol);
+                        saveVolume(pointerFilename, s.id, s.vol);
                         setTimeout(() => { suppressNextClick = false; }, 0);
                     } else {
                         suppressNextClick = false;
