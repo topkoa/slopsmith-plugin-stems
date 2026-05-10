@@ -1,7 +1,7 @@
 {
   "id": "stems",
   "name": "Stems Toggle",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "private": false,
   "standards": ["capability-pipelines.v1", "plugin-runtime-idempotent.v1", "profiles.v1", "settings-packs.v1"],
   "settings": { "html": "settings.html" },
