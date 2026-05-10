@@ -256,7 +256,7 @@
                 window.removeEventListener('pointermove', handleVolumePointerMove);
             };
             pointerCleanupHandlers.add(clearPointerState);
-            const isWindowFallbackEvent = (event) => !hasPointerCapture && event.currentTarget === window;
+            const isWindowFallbackEvent = (event) => event.currentTarget === window;
             const handleVolumePointerMove = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
                 if (!hasPointerCapture && !isWindowFallbackEvent(event)) return;
