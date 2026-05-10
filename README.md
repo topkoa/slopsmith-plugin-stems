@@ -7,7 +7,7 @@ PSARC songs are untouched — the plugin only activates when a song's `song_info
 ## Features
 
 - **Per-stem mute toggles** injected into the player control bar
-- **Volume sliders** — shift+click any stem button to open a volume popover
+- **Inline volume controls** — each stem button fills left-to-right to show its saved volume; drag across the button to set the level
 - **Per-song memory** — muted stems and volumes are saved to `localStorage` keyed by filename, so each song reopens with your last mix
 - **Mute on load** — pick which stems start silenced when a song opens (e.g. always start with vocals off)
 - **Karaoke mode** — one-click preset that always mutes vocals by default
@@ -26,7 +26,7 @@ docker compose restart
 
 1. Convert a PSARC to a `.sloppak` with the [Sloppak Converter](https://github.com/topkoa/slopsmith-plugin-sloppak-converter) plugin (which runs Demucs to split the single mixed track into per-instrument stems), or hand-craft a sloppak directory with multiple stems listed in `manifest.yaml`.
 2. Play the song. The stem mixer bar appears in `#player-controls` with one labeled button per stem.
-3. Click a stem to toggle it on/off. Shift+click to adjust its volume.
+3. Click a stem to toggle it on/off. Drag left or right across the button to adjust its volume continuously.
 4. Your mute state and volumes are remembered the next time you open the same song.
 
 ## Settings
