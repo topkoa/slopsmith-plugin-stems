@@ -298,10 +298,10 @@
             btn.addEventListener('pointermove', handleVolumePointerMove);
             const finishVolumeGesture = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
-                const isFallbackButtonEvent = !hasPointerCapture
+                const shouldIgnoreButtonEvent = !hasPointerCapture
                     && event.currentTarget !== window
                     && event.type !== 'lostpointercapture';
-                if (isFallbackButtonEvent) return;
+                if (shouldIgnoreButtonEvent) return;
                 if (volumeGestureActive) {
                     if (event.type === 'pointerup') {
                         event.preventDefault();
