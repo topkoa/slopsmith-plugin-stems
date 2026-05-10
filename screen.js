@@ -241,6 +241,7 @@
             let pointerStartY = 0;
             let pointerBounds = null;
             let pointerFilename = null;
+            let pointerStartVolume = null;
             let suppressNextClick = false;
             const clearPointerState = () => {
                 pointerTracking = false;
@@ -249,6 +250,7 @@
                 hasPointerCapture = false;
                 pointerBounds = null;
                 pointerFilename = null;
+                pointerStartVolume = null;
                 window.removeEventListener('pointerup', finishVolumeGesture);
                 window.removeEventListener('pointercancel', finishVolumeGesture);
                 window.removeEventListener('pointermove', handleVolumePointerMove);
@@ -280,6 +282,7 @@
                 const rect = btn.getBoundingClientRect();
                 pointerBounds = { left: rect.left, width: rect.width };
                 pointerFilename = currentFilename;
+                pointerStartVolume = s.vol;
                 suppressNextClick = false;
                 try {
                     btn.setPointerCapture(event.pointerId);
@@ -301,6 +304,7 @@
                         saveVolume(pointerFilename, s.id, s.vol);
                         setTimeout(() => { suppressNextClick = false; }, 0);
                     } else {
+                        setStemVolume(s, pointerStartVolume, { persist: false });
                         suppressNextClick = false;
                     }
                 }
