@@ -393,7 +393,7 @@
             }
 
             const vol = clampVolume(savedVols[s.id]);
-            const initialVol = vol == null ? 1 : vol;
+            const initialVol = vol ?? 1;
             gain.gain.value = on ? initialVol : 0;
             source.connect(gain).connect(ctx.destination);
 
