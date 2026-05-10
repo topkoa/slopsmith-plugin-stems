@@ -275,10 +275,14 @@
             const finishVolumeGesture = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
                 if (volumeGestureActive) {
-                    event.preventDefault();
-                    setStemVolumeFromPointer(s, btn, event, { persist: false }, pointerBounds);
-                    saveVolume(currentFilename, s.id, s.vol);
-                    setTimeout(() => { suppressNextClick = false; }, 0);
+                    if (event.type === 'pointerup') {
+                        event.preventDefault();
+                        setStemVolumeFromPointer(s, btn, event, { persist: false }, pointerBounds);
+                        saveVolume(currentFilename, s.id, s.vol);
+                        setTimeout(() => { suppressNextClick = false; }, 0);
+                    } else {
+                        suppressNextClick = false;
+                    }
                 }
                 clearPointerState();
                 try { btn.releasePointerCapture(event.pointerId); } catch (_) {}
