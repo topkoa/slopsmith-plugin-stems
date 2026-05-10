@@ -256,9 +256,10 @@
                 window.removeEventListener('pointermove', handleVolumePointerMove);
             };
             pointerCleanupHandlers.add(clearPointerState);
+            const isWindowFallbackEvent = (event) => !hasPointerCapture && event.currentTarget === window;
             const handleVolumePointerMove = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
-                if (!hasPointerCapture && event.currentTarget !== window) return;
+                if (!hasPointerCapture && !isWindowFallbackEvent(event)) return;
                 if (!hasPointerCapture && (event.buttons & PRIMARY_BUTTON_MASK) === 0) {
                     clearPointerState();
                     return;
@@ -298,8 +299,9 @@
             btn.addEventListener('pointermove', handleVolumePointerMove);
             const finishVolumeGesture = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
+                const isWindowEvent = isWindowFallbackEvent(event);
                 const shouldIgnoreButtonEvent = !hasPointerCapture
-                    && event.currentTarget !== window
+                    && !isWindowEvent
                     && event.type !== 'lostpointercapture';
                 if (shouldIgnoreButtonEvent) return;
                 if (volumeGestureActive) {
