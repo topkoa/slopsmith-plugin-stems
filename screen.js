@@ -19,6 +19,9 @@
     const MUTE_KEY_PREFIX = 'stemsMute:';  // per-song muted stem ids
     const VOL_KEY_PREFIX = 'stemsVol:';    // per-song volume overrides (id -> 0..1)
     const DRAG_THRESHOLD_PX = 4;
+    const KEYBOARD_VOLUME_STEP = 0.02;
+    const KEYBOARD_VOLUME_STEP_LARGE = 0.1;
+    const PRIMARY_BUTTON_MASK = 1;
 
     function loadDefaultMuted() {
         try {
@@ -140,8 +143,8 @@
         return true;
     }
 
-    function setStemVolumeFromPointer(stem, button, event, options = {}) {
-        const rect = button.getBoundingClientRect();
+    function setStemVolumeFromPointer(stem, button, event, options = {}, bounds = null) {
+        const rect = bounds || button.getBoundingClientRect();
         if (!rect.width) return false;
         const volume = (event.clientX - rect.left) / rect.width;
         return setStemVolume(stem, volume, options);
@@ -223,12 +226,14 @@
             let hasPointerCapture = false;
             let pointerStartX = 0;
             let pointerStartY = 0;
+            let pointerBounds = null;
             let suppressNextClick = false;
             const clearPointerState = () => {
                 pointerTracking = false;
                 volumeGestureActive = false;
                 volumePointerId = null;
                 hasPointerCapture = false;
+                pointerBounds = null;
                 window.removeEventListener('pointerup', finishVolumeGesture);
                 window.removeEventListener('pointercancel', finishVolumeGesture);
             };
@@ -239,6 +244,8 @@
                 volumePointerId = event.pointerId;
                 pointerStartX = event.clientX;
                 pointerStartY = event.clientY;
+                const rect = btn.getBoundingClientRect();
+                pointerBounds = { left: rect.left, width: rect.width };
                 suppressNextClick = false;
                 try {
                     btn.setPointerCapture(event.pointerId);
@@ -251,7 +258,7 @@
             });
             btn.addEventListener('pointermove', (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
-                if (!hasPointerCapture && (event.buttons & 1) === 0) {
+                if (!hasPointerCapture && (event.buttons & PRIMARY_BUTTON_MASK) === 0) {
                     clearPointerState();
                     return;
                 }
@@ -263,13 +270,13 @@
                     suppressNextClick = true;
                 }
                 event.preventDefault();
-                setStemVolumeFromPointer(s, btn, event, { persist: false });
+                setStemVolumeFromPointer(s, btn, event, { persist: false }, pointerBounds);
             });
             const finishVolumeGesture = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
                 if (volumeGestureActive) {
                     event.preventDefault();
-                    setStemVolumeFromPointer(s, btn, event, { persist: false });
+                    setStemVolumeFromPointer(s, btn, event, { persist: false }, pointerBounds);
                     saveVolume(currentFilename, s.id, s.vol);
                     setTimeout(() => { suppressNextClick = false; }, 0);
                 }
@@ -279,6 +286,15 @@
             btn.addEventListener('pointerup', finishVolumeGesture);
             btn.addEventListener('pointercancel', finishVolumeGesture);
             btn.addEventListener('lostpointercapture', finishVolumeGesture);
+            btn.addEventListener('keydown', (event) => {
+                let direction = 0;
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') direction = -1;
+                if (event.key === 'ArrowRight' || event.key === 'ArrowUp') direction = 1;
+                if (!direction) return;
+                event.preventDefault();
+                const step = event.shiftKey ? KEYBOARD_VOLUME_STEP_LARGE : KEYBOARD_VOLUME_STEP;
+                setStemVolume(s, s.vol + (direction * step));
+            });
 
             btn.onclick = (event) => {
                 if (suppressNextClick) {
