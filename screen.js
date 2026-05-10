@@ -78,6 +78,13 @@
     // orphaned interval from firing onSongReady() out of context for
     // the wrong song or after the player is gone.
     let pollHandle = null;
+    const pointerCleanupHandlers = new Set();
+
+    function cleanupPointerHandlers() {
+        for (const cleanup of pointerCleanupHandlers) {
+            try { cleanup(); } catch (_) {}
+        }
+    }
 
     // ── Settings ──
     const karaokeToggle = document.getElementById('stems-toggle-karaoke');
@@ -154,6 +161,7 @@
 
     // ── Teardown ──
     function teardown() {
+        cleanupPointerHandlers();
         // Cancel any pending cold-load poll first. Without this, a poll
         // started by the previous playSong invocation keeps firing on
         // its 200ms cadence and could rebuild the graph for the wrong
@@ -181,6 +189,7 @@
             s.audio.remove();
         }
         stemState = [];
+        pointerCleanupHandlers.clear();
         if (container) {
             container.remove();
             container = null;
@@ -190,6 +199,8 @@
 
     // ── UI ──
     function injectUI() {
+        cleanupPointerHandlers();
+        pointerCleanupHandlers.clear();
         const c = document.getElementById('player-controls');
         if (!c) return;
         // Remove any previous bar
@@ -242,6 +253,7 @@
                 window.removeEventListener('pointercancel', finishVolumeGesture);
                 window.removeEventListener('pointermove', handleVolumePointerMove);
             };
+            pointerCleanupHandlers.add(clearPointerState);
             const handleVolumePointerMove = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
                 if (!hasPointerCapture && (event.buttons & PRIMARY_BUTTON_MASK) === 0) {
