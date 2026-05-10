@@ -220,9 +220,18 @@
             let volumeGestureActive = false;
             let volumePointerId = null;
             let pointerTracking = false;
+            let hasPointerCapture = false;
             let pointerStartX = 0;
             let pointerStartY = 0;
             let suppressNextClick = false;
+            const clearPointerState = () => {
+                pointerTracking = false;
+                volumeGestureActive = false;
+                volumePointerId = null;
+                hasPointerCapture = false;
+                window.removeEventListener('pointerup', finishVolumeGesture);
+                window.removeEventListener('pointercancel', finishVolumeGesture);
+            };
             btn.addEventListener('pointerdown', (event) => {
                 if (event.button !== 0) return;
                 pointerTracking = true;
@@ -231,10 +240,21 @@
                 pointerStartX = event.clientX;
                 pointerStartY = event.clientY;
                 suppressNextClick = false;
-                try { btn.setPointerCapture(event.pointerId); } catch (_) {}
+                try {
+                    btn.setPointerCapture(event.pointerId);
+                    hasPointerCapture = true;
+                } catch (_) {
+                    hasPointerCapture = false;
+                    window.addEventListener('pointerup', finishVolumeGesture);
+                    window.addEventListener('pointercancel', finishVolumeGesture);
+                }
             });
             btn.addEventListener('pointermove', (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
+                if (!hasPointerCapture && (event.buttons & 1) === 0) {
+                    clearPointerState();
+                    return;
+                }
                 const deltaX = event.clientX - pointerStartX;
                 const deltaY = event.clientY - pointerStartY;
                 if (!volumeGestureActive) {
@@ -253,13 +273,12 @@
                     saveVolume(currentFilename, s.id, s.vol);
                     setTimeout(() => { suppressNextClick = false; }, 0);
                 }
-                pointerTracking = false;
-                volumeGestureActive = false;
-                volumePointerId = null;
+                clearPointerState();
                 try { btn.releasePointerCapture(event.pointerId); } catch (_) {}
             };
             btn.addEventListener('pointerup', finishVolumeGesture);
             btn.addEventListener('pointercancel', finishVolumeGesture);
+            btn.addEventListener('lostpointercapture', finishVolumeGesture);
 
             btn.onclick = (event) => {
                 if (suppressNextClick) {
@@ -272,7 +291,7 @@
                 updateStemButton(s);
                 saveMuted(currentFilename, stemState);
             };
-            updateStemButton(s);
+            setStemVolume(s, s.vol, { persist: false });
             wrap.appendChild(btn);
             // Sentinel keeps btn from being button:last-child of wrap.
             // Several other plugins (tones, drums, fretboard, midi, ...)
@@ -373,11 +392,12 @@
                 if (karaoke && /vocal/i.test(s.id)) on = false;
             }
 
-            const vol = (typeof savedVols[s.id] === 'number') ? savedVols[s.id] : 1;
-            gain.gain.value = on ? vol : 0;
+            const vol = clampVolume(savedVols[s.id]);
+            const initialVol = vol == null ? 1 : vol;
+            gain.gain.value = on ? initialVol : 0;
             source.connect(gain).connect(ctx.destination);
 
-            return { id: s.id, url: s.url, default: s.default, audio, source, gain, on, vol };
+            return { id: s.id, url: s.url, default: s.default, audio, source, gain, on, vol: initialVol };
         });
     }
 
