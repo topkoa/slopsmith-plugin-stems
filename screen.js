@@ -256,10 +256,15 @@
                 window.removeEventListener('pointermove', handleVolumePointerMove);
             };
             pointerCleanupHandlers.add(clearPointerState);
-            const isWindowFallbackEvent = (event) => event.currentTarget === window;
+            const isEventFromWindowListener = (event) => event.currentTarget === window;
+            const shouldIgnoreNonCapturedButtonEvent = (event, { allowLostPointerCapture = false } = {}) => (
+                !hasPointerCapture
+                && !isEventFromWindowListener(event)
+                && (!allowLostPointerCapture || event.type !== 'lostpointercapture')
+            );
             const handleVolumePointerMove = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
-                if (!hasPointerCapture && !isWindowFallbackEvent(event)) return;
+                if (shouldIgnoreNonCapturedButtonEvent(event)) return;
                 if (!hasPointerCapture && (event.buttons & PRIMARY_BUTTON_MASK) === 0) {
                     clearPointerState();
                     return;
@@ -299,11 +304,7 @@
             btn.addEventListener('pointermove', handleVolumePointerMove);
             const finishVolumeGesture = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
-                const isWindowEvent = isWindowFallbackEvent(event);
-                const shouldIgnoreButtonEvent = !hasPointerCapture
-                    && !isWindowEvent
-                    && event.type !== 'lostpointercapture';
-                if (shouldIgnoreButtonEvent) return;
+                if (shouldIgnoreNonCapturedButtonEvent(event, { allowLostPointerCapture: true })) return;
                 if (volumeGestureActive) {
                     if (event.type === 'pointerup') {
                         event.preventDefault();
