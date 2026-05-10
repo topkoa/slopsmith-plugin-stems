@@ -258,6 +258,7 @@
             pointerCleanupHandlers.add(clearPointerState);
             const handleVolumePointerMove = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
+                if (!hasPointerCapture && event.currentTarget !== window) return;
                 if (!hasPointerCapture && (event.buttons & PRIMARY_BUTTON_MASK) === 0) {
                     clearPointerState();
                     return;
@@ -297,6 +298,7 @@
             btn.addEventListener('pointermove', handleVolumePointerMove);
             const finishVolumeGesture = (event) => {
                 if (!pointerTracking || event.pointerId !== volumePointerId) return;
+                if (!hasPointerCapture && event.currentTarget !== window && event.type !== 'lostpointercapture') return;
                 if (volumeGestureActive) {
                     if (event.type === 'pointerup') {
                         event.preventDefault();
